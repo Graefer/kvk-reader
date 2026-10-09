@@ -110,6 +110,75 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
+# Padding inside table cells (pixels)
+TEXT_PAD = 8
+
+
+def _column_positions() -> dict:
+    """Column x-positions of the table, in render (landscape) pixels.
+
+    Shared by the renderer and by :func:`datum_field_box` so the editable
+    overlay in the web UI can never drift away from what is drawn.
+    """
+    x0 = MARGIN_X
+    x_end = RENDER_WIDTH - MARGIN_X
+    usable_width = x_end - x0
+    col1_w = round(usable_width * COL1_FRAC)
+    return {
+        "x0": x0,
+        "x_end": x_end,
+        "usable_width": usable_width,
+        "r3_col1_x": x0 + col1_w,
+        "r3_col2_x": x0 + col1_w + round(usable_width * COL2_ROW3_FRAC),
+        "r4_col1_x": x0 + col1_w,
+        "r4_col2_x": x0 + col1_w + round(usable_width * COL2_ROW4_FRAC),
+    }
+
+
+def label_font_path() -> str | None:
+    """Path of the font file the renderer actually uses, if it is a real file.
+
+    The web UI serves this very file to the browser, so the editable date
+    matches the rendered label on any client OS — relying on the client
+    happening to have Consolas installed does not work.
+    """
+    font = _get_font(FONT_VALUE_SIZE)
+    path = getattr(font, "path", None)
+    if path and os.path.isfile(path):
+        return path
+    return None
+
+
+def datum_field_box() -> dict:
+    """Rectangle, font and metrics of the Datum value, in render pixels.
+
+    The web UI places an input exactly here so the date can be edited on the
+    label itself instead of in a separate field. Ascent and descent let the
+    browser line the text up on the same baseline PIL draws on: PIL puts the
+    ascender line at y, CSS centres the text in its line box.
+    """
+    pos = _column_positions()
+    row4_y = MARGIN_Y + ROW1_HEIGHT + ROW2_HEIGHT + ROW3_HEIGHT
+    x = pos["r4_col2_x"] + TEXT_PAD
+
+    try:
+        ascent, descent = _get_font(FONT_VALUE_SIZE).getmetrics()
+    except (AttributeError, OSError):
+        ascent, descent = FONT_VALUE_SIZE, 0
+
+    return {
+        "x": x,
+        "y": row4_y + ROW4_HEIGHT - FONT_VALUE_SIZE - 6,
+        "width": pos["x_end"] - x - TEXT_PAD,
+        "height": FONT_VALUE_SIZE + 2,   # laesst die untere Rahmenlinie frei
+        "font_size": FONT_VALUE_SIZE,
+        "ascent": ascent,
+        "descent": descent,
+        "image_width": RENDER_WIDTH,
+        "image_height": RENDER_HEIGHT,
+    }
+
+
 def render_label(
     patient: PatientData,
     bsnr: str = "",
@@ -142,23 +211,17 @@ def render_label(
     font_value = _get_font(FONT_VALUE_SIZE)
     font_name = _get_font(FONT_NAME_SIZE)
 
-    # Full-width table
-    x0 = MARGIN_X
-    x_end = RENDER_WIDTH - MARGIN_X
-    usable_width = x_end - x0
-    text_pad = 8  # padding inside cells
+    # Full-width table — geometry shared with datum_field_box()
+    _pos = _column_positions()
+    x0 = _pos["x0"]
+    x_end = _pos["x_end"]
+    usable_width = _pos["usable_width"]
+    text_pad = TEXT_PAD
 
-    # Column positions (row 3)
-    col1_w = round(usable_width * COL1_FRAC)
-    col2_r3_w = round(usable_width * COL2_ROW3_FRAC)
-
-    r3_col1_x = x0 + col1_w
-    r3_col2_x = r3_col1_x + col2_r3_w
-
-    # Column positions (row 4 — different split)
-    col2_r4_w = round(usable_width * COL2_ROW4_FRAC)
-    r4_col1_x = x0 + col1_w
-    r4_col2_x = r4_col1_x + col2_r4_w
+    r3_col1_x = _pos["r3_col1_x"]
+    r3_col2_x = _pos["r3_col2_x"]
+    r4_col1_x = _pos["r4_col1_x"]
+    r4_col2_x = _pos["r4_col2_x"]
 
     # =====================================================================
     # Row 1: Krankenkasse bzw. Kostenträger

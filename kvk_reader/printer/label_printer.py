@@ -140,6 +140,18 @@ def _print_via_win32(
         raise PrinterError(f"Windows-Druckfehler: {e}") from e
 
 
+# Session printers redirected into an RDP session. They carry the same name
+# as the real device but point at the client, so printing to one silently
+# produces a PDF instead of a label.
+_REDIRECTED_MARKERS = ("umgeleitet", "redirected")
+
+
+def _is_redirected(name: str) -> bool:
+    """True if the printer is an RDP session redirect rather than the device."""
+    lowered = name.lower()
+    return any(marker in lowered for marker in _REDIRECTED_MARKERS)
+
+
 def _find_brother_printer() -> str:
     """Find a Brother QL printer in the Windows printer list.
 
@@ -148,23 +160,42 @@ def _find_brother_printer() -> str:
     """
     try:
         import win32print
+    except ImportError:
+        return ""
 
-        # Check default printer first
+    # The default printer is only a hint, and querying it fails outright when
+    # running as a service account. That must not abort the search.
+    try:
         default = win32print.GetDefaultPrinter()
-        if "brother" in default.lower() and "ql" in default.lower():
+        if ("brother" in default.lower() and "ql" in default.lower()
+                and not _is_redirected(default)):
             return default
+    except Exception as e:
+        log.debug("Standarddrucker nicht abfragbar: %s", e)
 
-        # Search all printers
+    try:
         printers = win32print.EnumPrinters(
             win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS,
         )
-        for flags, desc, name, comment in printers:
-            if "brother" in name.lower() and "ql" in name.lower():
-                return name
+    except Exception as e:
+        log.warning("Druckerliste nicht abfragbar: %s", e)
+        return ""
 
-        return ""
-    except Exception:
-        return ""
+    candidates = [
+        name for flags, desc, name, comment in printers
+        if "brother" in name.lower() and "ql" in name.lower()
+    ]
+    for name in candidates:
+        if not _is_redirected(name):
+            return name
+
+    if candidates:
+        log.warning(
+            "Nur umgeleitete Brother-Drucker gefunden (%s) — diese drucken "
+            "nicht auf das Gerät. Bitte Druckernamen fest eintragen.",
+            ", ".join(candidates),
+        )
+    return ""
 
 
 def _print_via_brother_ql(
@@ -243,6 +274,25 @@ def list_usb_printers() -> list[str]:
     try:
         from brother_ql.backends.helpers import discover
         return discover(backend_identifier="pyusb")
+    except Exception:
+        return []
+
+
+def list_all_windows_printers() -> list[str]:
+    """Every Windows printer, so the settings page can offer a choice.
+
+    Redirected session printers are filtered out — they look like the real
+    device but print somewhere else entirely.
+    """
+    try:
+        import win32print
+        printers = win32print.EnumPrinters(
+            win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS,
+        )
+        return [
+            name for flags, desc, name, comment in printers
+            if not _is_redirected(name)
+        ]
     except Exception:
         return []
 

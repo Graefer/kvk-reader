@@ -7,11 +7,19 @@ and CT-API for KVK/PKV (memory cards) via vendor DLL.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import List, Optional
 
 from kvk_reader.card.models import PatientData
 
 log = logging.getLogger(__name__)
+
+# One PC/SC context for the whole process, reused by every reader poll.
+# Windows keeps session-manager (LSM) memory for every SCardEstablishContext
+# until the calling process exits (~24 KB each). Polling every 5 s with a
+# fresh context exhausted the VM's commit memory after ~25 days.
+_list_lock = threading.Lock()
+_list_context = None
 
 # Known eGK ATR patterns (partial matches on first bytes)
 _EGK_ATR_PREFIXES = [
@@ -67,6 +75,37 @@ def detect_card_type(atr: list) -> str:
     return CardType.UNKNOWN
 
 
+def list_reader_names() -> List[str]:
+    """List PC/SC reader names through the shared long-lived context.
+
+    The context is rebuilt on the next call when the smart card service
+    stopped or the handle became invalid.
+    """
+    global _list_context
+    from smartcard import scard
+
+    with _list_lock:
+        if _list_context is None:
+            hresult, context = scard.SCardEstablishContext(scard.SCARD_SCOPE_USER)
+            if hresult == scard.SCARD_E_NO_SERVICE:
+                return []
+            if hresult != scard.SCARD_S_SUCCESS:
+                raise RuntimeError(scard.SCardGetErrorMessage(hresult))
+            _list_context = context
+
+        hresult, names = scard.SCardListReaders(_list_context, [])
+        if hresult == scard.SCARD_S_SUCCESS:
+            return list(names)
+        if hresult == scard.SCARD_E_NO_READERS_AVAILABLE:
+            return []
+
+        scard.SCardReleaseContext(_list_context)
+        _list_context = None
+        if hresult in (scard.SCARD_E_NO_SERVICE, scard.SCARD_E_SERVICE_STOPPED):
+            return []
+        raise RuntimeError(scard.SCardGetErrorMessage(hresult))
+
+
 def read_card_pcsc(connection, card_type: str) -> PatientData:
     """Read a card using PC/SC (pyscard) with the appropriate reader module.
 
@@ -105,7 +144,6 @@ class CardReaderWorker:
                        Empty string = use PC/SC only.
             ct_api_pn: CT-API port number (vendor-specific, usually 1).
         """
-        self._readers: list = []
         self._ct_api_dll = ct_api_dll
         self._ct_api_pn = ct_api_pn
 
@@ -116,9 +154,7 @@ class CardReaderWorker:
             List of reader name strings.
         """
         try:
-            from smartcard.System import readers
-            self._readers = readers()
-            return [str(r) for r in self._readers]
+            return list_reader_names()
         except Exception as e:
             log.error("Kartenleser-Suche fehlgeschlagen: %s", e)
             return []

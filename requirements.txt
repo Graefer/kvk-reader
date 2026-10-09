@@ -1,4 +1,4 @@
-PyQt5>=5.15.0
+# Server-Betrieb (Standard ab 2.0) — Bedienung über den Browser.
 pyscard>=2.0.0
 brother-ql>=0.9.4
 Pillow>=10.0.0
@@ -6,3 +6,6 @@ lxml>=5.0.0
 flask>=3.0.0
 flask-cors>=4.0.0
 pywin32>=300; sys_platform == "win32"
+
+# Das klassische Desktop-Fenster (--gui) braucht zusätzlich PyQt5:
+#   pip install -r requirements-gui.txt

@@ -1,5 +1,10 @@
 # KVK/eGK Reader — Installationsanleitung Windows 7
 
+> **Diese Anleitung beschreibt Version 1.5** — die Desktop-App mit
+> Programmfenster, wie sie auf dem alten Windows-7-Rechner läuft.
+> **Ab Version 2.0** läuft die Anwendung als Server und wird im Browser
+> bedient: siehe [INSTALL_WIN10.md](INSTALL_WIN10.md).
+
 ## Voraussetzungen
 
 - Windows 7 SP1 (64-bit)
@@ -159,9 +164,10 @@ pip install PyQt5 pyscard Pillow lxml flask brother-ql
 pyscard benötigt den PC/SC-Dienst (unter Windows 7 standardmäßig aktiv).
 Falls der Build fehlschlägt, vorher installieren:
 - Microsoft Visual C++ Build Tools: https://visualstudio.microsoft.com/visual-cpp-build-tools/
-- Oder das vorkompilierte Wheel verwenden:
+- Oder das vorkompilierte Wheel verwenden. **Es muss zur 32-Bit-Installation
+  aus Schritt B1 passen** — Dateiname auf `win32`, nicht `win_amd64`:
   ```cmd
-  pip install https://github.com/LudovicRousseau/pyscard/releases/download/v2.0.10/pyscard-2.0.10-cp38-cp38-win_amd64.whl
+  pip install https://github.com/LudovicRousseau/pyscard/releases/download/v2.0.10/pyscard-2.0.10-cp38-cp38-win32.whl
   ```
 
 ## B4: Brother QL-800 USB-Treiber einrichten

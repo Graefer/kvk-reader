@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KVK/eGK Reader</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <h1>KVK/eGK&nbsp;Reader</h1>
+    <span class="version" id="version"></span>
+  </div>
+  <div class="status-group">
+    <span class="badge" id="reader-badge" title="Kartenleser am Server">
+      <span class="dot"></span><span id="reader-text">Kartenleser: –</span>
+    </span>
+    <button class="ghost" id="btn-settings" title="Einstellungen">Einstellungen</button>
+  </div>
+</header>
+
+<div class="banner" id="banner" hidden>
+  <span id="banner-text"></span>
+  <button class="banner-close" id="banner-close" aria-label="Meldung schließen">&times;</button>
+</div>
+
+<main class="layout">
+
+  <section class="panel actions">
+    <div class="action-row">
+      <button class="primary big" id="btn-read">
+        Karte lesen <kbd>F5</kbd>
+      </button>
+      <button class="ghost" id="btn-demo" hidden>Demo-Daten</button>
+    </div>
+    <div class="action-row print-row">
+      <label for="copies">Kopien</label>
+      <input type="number" id="copies" min="1" max="20" value="1">
+      <button class="primary" id="btn-print" disabled>
+        Drucken <kbd>F6</kbd>
+      </button>
+    </div>
+  </section>
+
+  <section class="panel patient">
+    <h2>Patientendaten</h2>
+    <p class="empty" id="patient-empty">Noch keine Karte eingelesen.</p>
+    <table class="data" id="patient-table" hidden><tbody></tbody></table>
+  </section>
+
+  <section class="panel preview">
+    <h2>Etikett-Vorschau <span class="sub">Datum direkt im Etikett änderbar</span></h2>
+    <div class="preview-box">
+      <p class="empty" id="preview-empty">Keine Kartendaten</p>
+      <div class="preview-stage" id="preview-stage" hidden>
+        <img id="preview-img" alt="Etikett-Vorschau">
+        <input type="text" id="datum" class="datum-field" maxlength="10"
+               title="Datum auf dem Etikett bearbeiten"
+               aria-label="Datum auf dem Etikett">
+      </div>
+    </div>
+  </section>
+
+  <section class="panel history">
+    <h2>
+      <span>Historie <span class="count" id="history-count"></span></span>
+      <span class="sortbar">
+        <span class="sortlabel">Sortieren</span>
+        <button type="button" class="sort" data-sort="nachname">Name</button>
+        <button type="button" class="sort" data-sort="einlesedatum">Datum</button>
+      </span>
+    </h2>
+    <div class="filterbar">
+      <label for="filter-von">Zeitraum</label>
+      <input type="date" id="filter-von" title="Eingelesen ab (einschließlich)">
+      <span class="bis">bis</span>
+      <input type="date" id="filter-bis" title="Eingelesen bis (einschließlich)">
+      <button type="button" class="ghost small" id="btn-filter-reset" title="Zeitraum aufheben">×</button>
+      <button type="button" class="ghost small" id="btn-liste-drucken"
+              title="Liste aller Details auf DIN A4 quer drucken">Liste drucken</button>
+    </div>
+    <ul class="history-list" id="history-list"></ul>
+  </section>
+
+</main>
+
+<div class="modal-backdrop" id="settings-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <h2 id="settings-title">Einstellungen</h2>
+
+    <fieldset>
+      <legend>Praxis</legend>
+      <label>Betriebsstätten-Nr. (BSNR)
+        <input type="text" data-key="praxis/bsnr"></label>
+      <label>Arzt-Nr. (LANR)
+        <input type="text" data-key="praxis/lanr"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Kartenleser</legend>
+      <label>Leser
+        <select data-key="reader/index" id="reader-select"></select></label>
+      <label>CT-API DLL (für KVK/PKV)
+        <input type="text" data-key="reader/ct_api_dll" list="ct-api-list" placeholder="z.B. ctpcsc32.dll">
+        <datalist id="ct-api-list"></datalist></label>
+      <label>CT-API Port-Nr.
+        <input type="number" data-key="reader/ct_api_pn" min="0" max="14"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Drucker</legend>
+      <label>Windows-Drucker (leer = automatisch suchen)
+        <input type="text" data-key="printer/name" list="printer-list"
+               placeholder="z.B. Brother QL-810W">
+        <datalist id="printer-list"></datalist></label>
+      <label>Drucker-URI (brother_ql)
+        <input type="text" data-key="printer/uri" placeholder="usb://0x04F9:0x209B oder tcp://192.168.5.x"></label>
+      <label>Modell
+        <input type="text" data-key="printer/model" placeholder="QL-800"></label>
+      <label>Standard-Kopienzahl
+        <input type="number" data-key="label/copies_default" min="1" max="20"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Server</legend>
+      <label class="check"><input type="checkbox" data-key="api/demo_mode">
+        Demo-Modus (Testdaten ohne Kartenleser)</label>
+      <label>API-Schlüssel <span class="hint" id="key-hint"></span>
+        <input type="password" data-key="api/key" placeholder="leer lassen = unverändert"></label>
+      <p class="hint">Ein gesetzter Schlüssel schützt alle Endpunkte. Leeren des Feldes
+        ändert nichts; zum Entfernen „Schlüssel entfernen“ klicken.</p>
+      <button class="ghost small" id="btn-clear-key">Schlüssel entfernen</button>
+    </fieldset>
+
+    <div class="modal-actions">
+      <button class="ghost" id="btn-settings-cancel">Abbrechen</button>
+      <button class="primary" id="btn-settings-save">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="busy" hidden>
+  <div class="spinner"></div>
+  <p id="busy-text">Bitte warten…</p>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

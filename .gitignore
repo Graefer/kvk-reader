@@ -8,3 +8,6 @@ build/
 *.egg-info/
 *.db
 *.sqlite3
+.devdata/
+kvk_reader.log
+kvk_reader_crash.log

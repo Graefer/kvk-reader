@@ -177,10 +177,20 @@ def read_kvk_omnikey(reader_name: str) -> PatientData:
         KvkReadError: If card communication fails.
         KvkParseError: If data parsing fails.
     """
-    from kvk_reader.card.omnikey_sync import read_sle4428, OmnikeySyncError
+    from kvk_reader.card.omnikey_sync import (
+        OmnikeyNoCardError,
+        OmnikeySyncError,
+        read_sle4428,
+    )
 
     try:
         raw_data = read_sle4428(reader_name)
+    except OmnikeyNoCardError as e:
+        raise KvkReadError(
+            "Keine Karte erkannt — bitte Karte einstecken und ganz "
+            "einschieben (fehlender Kontakt sieht genauso aus wie ein "
+            "leerer Schacht)."
+        ) from e
     except OmnikeySyncError as e:
         raise KvkReadError(f"Omnikey Sync API: {e}") from e
     except OSError as e:

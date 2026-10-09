@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from datetime import date
 
 from PyQt5.QtWidgets import (
     QMainWindow,
@@ -27,10 +28,12 @@ from PyQt5.QtCore import QSettings, QTimer, Qt, pyqtSlot
 
 from kvk_reader.config import APP_NAME, APP_VERSION, ORG_NAME, DEFAULTS
 from kvk_reader.card.models import PatientData
+from kvk_reader.core.label_service import patient_from_dict
 from kvk_reader.storage import PatientStorage
 from kvk_reader.gui.patient_history_table import PatientHistoryTable
 from kvk_reader.gui.label_preview import LabelPreview
 from kvk_reader.gui.settings_dialog import SettingsDialog
+from kvk_reader.gui.settings_bridge import sync_qsettings_to_json
 from kvk_reader.gui.card_worker import CardReadThread, ReaderDiscoveryThread
 from kvk_reader.printer.label_printer import print_label, PrinterError
 
@@ -51,7 +54,8 @@ class MainWindow(QMainWindow):
         self._discovery_thread: ReaderDiscoveryThread | None = None
         self._reader_names: list[str] = []
         self._storage = PatientStorage()
-        self._api_server = None  # set by app.py after start
+        self._api_server = None   # set by app.py after start
+        self._api_context = None  # set by app.py, keeps the REST API in sync
 
         self._setup_ui()
         self._setup_toolbar()
@@ -83,6 +87,13 @@ class MainWindow(QMainWindow):
 
         # Discover readers after GUI is shown
         QTimer.singleShot(500, self._discover_readers)
+
+        # Periodically re-discover so a reader plugged in after startup
+        # is picked up and the status bar stays in sync with reality.
+        self._reader_poll_timer = QTimer(self)
+        self._reader_poll_timer.setInterval(3000)
+        self._reader_poll_timer.timeout.connect(self._discover_readers)
+        self._reader_poll_timer.start()
 
     def _resize_to_screen(self):
         """Resize window to fit screen — max 1400x825 or screen size minus margins."""
@@ -305,50 +316,44 @@ class MainWindow(QMainWindow):
         if rec is None:
             return
 
-        # Reconstruct PatientData from stored record
-        patient = PatientData(
-            vorname=rec.get("vorname", ""),
-            nachname=rec.get("nachname", ""),
-            geburtsdatum=rec.get("geburtsdatum", ""),
-            titel=rec.get("titel", ""),
-            namenszusatz=rec.get("namenszusatz", ""),
-            vorsatzwort=rec.get("vorsatzwort", ""),
-            geschlecht=rec.get("geschlecht", ""),
-            strasse=rec.get("strasse", ""),
-            hausnummer=rec.get("hausnummer", ""),
-            plz=rec.get("plz", ""),
-            ort=rec.get("ort", ""),
-            wohnsitzlaendercode=rec.get("wohnsitzlaendercode", "D"),
-            krankenkasse_name=rec.get("krankenkasse_name", ""),
-            krankenkassen_nummer=rec.get("krankenkassen_nummer", ""),
-            versichertennummer=rec.get("versichertennummer", ""),
-            versichertenstatus=rec.get("versichertenstatus", ""),
-            versichertenart=rec.get("versichertenart", ""),
-            gueltig_bis=rec.get("gueltig_bis", ""),
-            vknr=rec.get("vknr", ""),
-            status_ergaenzung=rec.get("status_ergaenzung", ""),
-            card_type=rec.get("card_type", ""),
-            read_timestamp=rec.get("read_timestamp", ""),
-        )
+        patient = patient_from_dict(rec)
         self._current_patient = patient
+        self._publish_patient(patient)
 
         bsnr = str(self._settings.value("praxis/bsnr", ""))
         lanr = str(self._settings.value("praxis/lanr", ""))
-        self._preview.update_preview(patient, bsnr=bsnr, lanr=lanr)
+        self._preview.update_preview(
+            patient, bsnr=bsnr, lanr=lanr,
+            datum=date.today().strftime("%d.%m.%Y"),
+        )
 
         self._statusbar.showMessage(
             f"{patient.full_name} ({patient.card_type})", 3000
         )
+
+    def _publish_patient(self, patient: PatientData | None):
+        """Mirror the displayed patient into the API context.
+
+        Without this, /api/patient would go stale whenever a card is read
+        from the window rather than through the API. Listeners are skipped
+        because the window is already showing this patient.
+        """
+        if self._api_context is not None:
+            self._api_context.set_patient(patient, notify=False)
 
     # --- Public methods (called by API server, etc.) ---
 
     def set_patient_data(self, patient: PatientData | None):
         """Update the UI with new patient data."""
         self._current_patient = patient
+        self._publish_patient(patient)
 
         bsnr = str(self._settings.value("praxis/bsnr", ""))
         lanr = str(self._settings.value("praxis/lanr", ""))
-        self._preview.update_preview(patient, bsnr=bsnr, lanr=lanr)
+        self._preview.update_preview(
+            patient, bsnr=bsnr, lanr=lanr,
+            datum=date.today().strftime("%d.%m.%Y") if patient else None,
+        )
 
         if patient:
             self._statusbar.showMessage(
@@ -376,19 +381,29 @@ class MainWindow(QMainWindow):
 
     def _discover_readers(self):
         """Discover available PC/SC readers in a background thread."""
+        # Skip if a previous discovery is still running (poll timer may fire
+        # faster than pcsc responds).
+        if self._discovery_thread is not None and self._discovery_thread.isRunning():
+            return
         self._discovery_thread = ReaderDiscoveryThread()
         self._discovery_thread.readers_found.connect(self._on_readers_found)
         self._discovery_thread.discovery_error.connect(self._on_reader_discovery_error)
         self._discovery_thread.start()
 
     def _on_readers_found(self, names: list[str]):
+        # Only log / update status on state change to avoid log spam from polling.
+        changed = names != self._reader_names
         self._reader_names = names
+        if self._api_context is not None:
+            self._api_context.set_readers(names)
         if names:
             self.set_reader_status(names[0])
-            log.info("Found %d reader(s): %s", len(names), names)
+            if changed:
+                log.info("Found %d reader(s): %s", len(names), names)
         else:
             self.set_reader_status("Kein Leser gefunden")
-            log.info("No card readers found")
+            if changed:
+                log.info("No card readers found")
 
     def _on_reader_discovery_error(self, error: str):
         self.set_reader_status("pyscard nicht verfügbar")
@@ -508,6 +523,8 @@ class MainWindow(QMainWindow):
     def _on_settings(self):
         dlg = SettingsDialog(self)
         if dlg.exec():
+            # Keep the REST API on the same practice data as the window
+            sync_qsettings_to_json()
             # Re-render preview with updated practice data
             if self._current_patient:
                 self.set_patient_data(self._current_patient)

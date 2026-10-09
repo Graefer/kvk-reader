@@ -1,19 +1,22 @@
 [project]
 name = "kvk-reader"
-version = "1.5.1"
+version = "2.0.0"
 description = "eGK/KVK Card Reader & Label Printer for German medical practices"
 requires-python = ">=3.8"
 dependencies = [
-    "PyQt5>=5.15.0",
     "pyscard>=2.0.0",
     "brother-ql>=0.9.4",
     "Pillow>=10.0.0",
     "lxml>=5.0.0",
     "flask>=3.0.0",
     "flask-cors>=4.0.0",
+    "pywin32>=300; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
+gui = [
+    "PyQt5>=5.15.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pyinstaller>=6.0.0",

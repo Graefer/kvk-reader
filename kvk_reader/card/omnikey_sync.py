@@ -92,6 +92,16 @@ SLE4428_SIZE = 1024    # 3-Wire Bus Protocol
 SLE4442_SIZE = 256     # 2-Wire Bus Protocol
 
 
+class OmnikeyNoCardError(Exception):
+    """Raised when the reader responds but no card is inserted.
+
+    Synchronous cards are invisible to PC/SC, so the code reaches the Sync
+    API even with an empty slot. The reader then connects in DIRECT mode,
+    has no ATR to report and returns a buffer of zeros — which used to fail
+    later as an unhelpful parser error.
+    """
+
+
 class OmnikeySyncError(Exception):
     """Raised when Omnikey Sync API call fails."""
 
@@ -288,6 +298,18 @@ def _read_card_chunked(read_func, func_name, hCard, total_size, chunk_size) -> b
     return data
 
 
+def looks_like_empty_slot(data: bytes) -> bool:
+    """True if the buffer carries no card data at all.
+
+    An empty slot yields all 0x00 (and some readers all 0xFF). A real
+    KVK/PKV card never has uniform memory across its whole capacity.
+    """
+    if not data:
+        return True
+    first = data[0]
+    return first in (0x00, 0xFF) and all(b == first for b in data)
+
+
 def read_sync_card(reader_name: str) -> bytes:
     """Read all data from an SLE4428 or SLE4442 card via Omnikey Sync API.
 
@@ -414,6 +436,10 @@ def read_sync_card(reader_name: str) -> bytes:
         log.info("Omnikey: %d Bytes gelesen (%s)", len(data), card_type)
         hex_preview = " ".join(f"{b:02X}" for b in data[:64])
         log.info("Omnikey: Erste 64 Bytes: %s", hex_preview)
+
+        if looks_like_empty_slot(data):
+            log.info("Omnikey: Nur Leerbytes gelesen — keine Karte im Leser")
+            raise OmnikeyNoCardError("Keine Karte im Leser")
 
         return data
 

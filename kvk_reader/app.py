@@ -3,49 +3,17 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QSettings
 
 from kvk_reader.config import APP_NAME, ORG_NAME, DEFAULTS
+from kvk_reader.logging_setup import init_logging, local_ip
 
 log = logging.getLogger(__name__)
 
 _SOCKET_NAME = "KVKReader-SingleInstance"
-
-
-def _init_logging():
-    """Configure logging to console and log file.
-
-    Log file is written next to the executable / script for easy access.
-    """
-    log_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    log_level = logging.INFO
-
-    # Log file next to exe/script
-    if getattr(sys, 'frozen', False):
-        log_dir = os.path.dirname(sys.executable)
-    else:
-        log_dir = os.getcwd()
-
-    log_file = os.path.join(log_dir, "kvk_reader.log")
-
-    handlers = [
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_file, mode='w', encoding='utf-8'),
-    ]
-
-    logging.basicConfig(
-        level=log_level,
-        format=log_format,
-        handlers=handlers,
-    )
-
-    logging.getLogger(__name__).info(
-        "Logging konfiguriert: %s (Level: %s)", log_file, log_level
-    )
 
 
 def _init_settings():
@@ -104,9 +72,46 @@ def _start_single_instance_server(window):
     return server
 
 
+def _attach_api_server(window) -> None:
+    """Start the REST API alongside the window and keep both in sync.
+
+    The API runs on its own thread, so a card read arriving through HTTP
+    has to hop back onto the Qt thread before touching any widget.
+    """
+    from PyQt5.QtCore import QMetaObject, Qt as QtConst, Q_ARG
+
+    from kvk_reader.api.server import ApiServer
+    from kvk_reader.core.context import AppContext
+    from kvk_reader.gui.settings_bridge import sync_qsettings_to_json
+
+    sync_qsettings_to_json()
+
+    settings = QSettings(ORG_NAME, APP_NAME)
+    port = int(settings.value("api/port", DEFAULTS["api/port"]))
+
+    context = AppContext(storage=window._storage)
+
+    def on_api_card_read(patient, row_id):
+        window._current_patient = patient
+        QMetaObject.invokeMethod(
+            window, "_on_api_card_read",
+            QtConst.QueuedConnection,
+            Q_ARG(int, row_id or 0),
+        )
+
+    context.add_listener(on_api_card_read)
+    window._api_context = context
+
+    api_server = ApiServer(context, port=port)
+    api_server.start()
+    window._api_server = api_server
+
+    window.set_api_status(f"http://{local_ip()}:{port}")
+
+
 def run_app() -> int:
     """Create and run the application."""
-    _init_logging()
+    init_logging()
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -129,24 +134,8 @@ def run_app() -> int:
         api_enabled = api_enabled.lower() in ("true", "1", "yes")
 
     if api_enabled:
-        port = int(settings.value("api/port", DEFAULTS["api/port"]))
         try:
-            from kvk_reader.api.server import ApiServer
-
-            api_server = ApiServer(window, port=port)
-            api_server.start()
-            window._api_server = api_server
-
-            # Show LAN IP so other devices can reach the API
-            import socket
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.connect(("8.8.8.8", 80))
-                local_ip = s.getsockname()[0]
-                s.close()
-            except Exception:
-                local_ip = "localhost"
-            window.set_api_status(f"http://{local_ip}:{port}")
+            _attach_api_server(window)
         except Exception as e:
             log.error("API server failed to start: %s", e)
             window.set_api_status("API: Fehler")

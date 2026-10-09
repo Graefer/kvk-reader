@@ -23,6 +23,7 @@ from kvk_reader.card.omnikey_sync import (
     OmnikeySyncError,
     _format_error,
     is_omnikey_reader,
+    looks_like_empty_slot,
 )
 
 
@@ -187,3 +188,27 @@ class TestOmnikeySyncError:
 
     def test_is_exception(self):
         assert issubclass(OmnikeySyncError, Exception)
+
+
+class TestEmptySlotDetection:
+    """Synchronous cards are invisible to PC/SC, so an empty slot still
+    reaches the Sync API and returns a buffer of zeros. That has to be
+    reported as 'no card', not as a parser error."""
+
+    def test_all_zero_buffer_is_empty_slot(self):
+        assert looks_like_empty_slot(bytes(256)) is True
+
+    def test_all_ff_buffer_is_empty_slot(self):
+        assert looks_like_empty_slot(b"\xFF" * 1024) is True
+
+    def test_no_data_is_empty_slot(self):
+        assert looks_like_empty_slot(b"") is True
+
+    def test_card_data_is_not_empty_slot(self):
+        data = bytes(10) + b"\x60\x1f" + bytes(244)
+        assert looks_like_empty_slot(data) is False
+
+    def test_single_nonzero_byte_counts_as_card(self):
+        data = bytearray(256)
+        data[200] = 0x01
+        assert looks_like_empty_slot(bytes(data)) is False

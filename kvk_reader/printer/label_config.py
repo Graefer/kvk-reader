@@ -90,9 +90,9 @@ DIVIDER_START_OFFSET_FRAC = 15.7 / 24.0  # fraction of row 3/4 height
 # ---------------------------------------------------------------------------
 # Font sizes (pixels, scaled from PDF point sizes)
 # ---------------------------------------------------------------------------
-FONT_LABEL_SIZE = round(7 * _SCALE)        # Field labels (~29px, +17%)
-FONT_VALUE_SIZE = round(11 * _SCALE)       # Data values (~46px, +22%)
-FONT_NAME_SIZE = round(11 * _SCALE)        # Name (~46px, +22%)
+FONT_LABEL_SIZE = round(7 * _SCALE)        # Field labels (~29px)
+FONT_VALUE_SIZE = round(10 * _SCALE)       # Data values (~42px)
+FONT_NAME_SIZE = round(10 * _SCALE)        # Name (~42px)
 
 # "geb. am" label position: in the PDF it's at 21.2pt from row2 top
 GEB_AM_Y_OFFSET = round(21.2 * _SCALE)    # from row2 top

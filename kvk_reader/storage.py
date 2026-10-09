@@ -10,10 +10,10 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-import sys
 from dataclasses import fields
 
 from kvk_reader.card.models import PatientData
+from kvk_reader.paths import app_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -53,23 +53,10 @@ CREATE TABLE IF NOT EXISTS lesevorgaenge (
 def _db_path() -> str:
     """Determine the database file path.
 
-    Uses %APPDATA%/KVKReader/ on Windows, ~/.kvkreader/ otherwise.
-    This ensures the database survives application updates/reinstalls.
-    Falls back to the executable directory if APPDATA is not available.
+    Lives in the shared application data directory so the database
+    survives application updates/reinstalls.
     """
-    if sys.platform == "win32":
-        appdata = os.environ.get("APPDATA", "")
-        if appdata:
-            base = os.path.join(appdata, "KVKReader")
-        elif getattr(sys, "frozen", False):
-            base = os.path.dirname(sys.executable)
-        else:
-            base = os.getcwd()
-    else:
-        base = os.path.join(os.path.expanduser("~"), ".kvkreader")
-
-    os.makedirs(base, exist_ok=True)
-    return os.path.join(base, "kvk_reader.db")
+    return os.path.join(app_data_dir(), "kvk_reader.db")
 
 
 MAX_RECORDS = 250
