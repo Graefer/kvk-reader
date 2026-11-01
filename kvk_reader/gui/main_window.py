@@ -481,9 +481,13 @@ class MainWindow(QMainWindow):
         copies = self._copies_spin.value()
         uri = str(self._settings.value("printer/uri", DEFAULTS["printer/uri"]))
         model = str(self._settings.value("printer/model", DEFAULTS["printer/model"]))
+        name = str(self._settings.value("printer/name", DEFAULTS["printer/name"]))
 
         try:
-            print_label(img, printer_uri=uri, printer_model=model, copies=copies)
+            print_label(
+                img, printer_uri=uri, printer_model=model,
+                printer_name=name, copies=copies,
+            )
             self._statusbar.showMessage(f"{copies}x Etikett gedruckt", 3000)
         except PrinterError as e:
             QMessageBox.critical(self, "Druckfehler", str(e))

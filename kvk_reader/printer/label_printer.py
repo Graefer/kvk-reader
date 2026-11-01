@@ -94,7 +94,8 @@ def _print_via_win32(
         raise PrinterError(
             "Kein Brother-Drucker gefunden.\n"
             "Bitte Brother QL-800 Treiber installieren und "
-            "Drucker anschließen."
+            "Drucker anschließen, oder den Windows-Drucker "
+            "in den Einstellungen auswählen."
         )
 
     log.info("Drucke über Windows-Treiber: '%s'", printer_name)
@@ -279,8 +280,10 @@ def list_usb_printers() -> list[str]:
 
 
 def list_all_windows_printers() -> list[str]:
-    """Every Windows printer, so the settings page can offer a choice.
+    """Every Windows printer, Brother models first, so the settings can offer a choice.
 
+    Not filtered to Brother: a network printer may have been renamed in
+    Windows (e.g. "Etikettendrucker") and must still be selectable.
     Redirected session printers are filtered out — they look like the real
     device but print somewhere else entirely.
     """
@@ -289,28 +292,19 @@ def list_all_windows_printers() -> list[str]:
         printers = win32print.EnumPrinters(
             win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS,
         )
-        return [
+        names = [
             name for flags, desc, name, comment in printers
             if not _is_redirected(name)
         ]
+        return sorted(names, key=lambda n: "brother" not in n.lower())
     except Exception:
         return []
 
 
 def list_windows_printers() -> list[str]:
-    """List available Windows printers (Brother QL models).
+    """Same list as list_all_windows_printers (settings dialog of the window).
 
-    Returns:
-        List of Windows printer name strings.
+    Kept as its own name because 1.5 callers used it; it no longer filters
+    to Brother models.
     """
-    try:
-        import win32print
-        printers = win32print.EnumPrinters(
-            win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS,
-        )
-        return [
-            name for flags, desc, name, comment in printers
-            if "brother" in name.lower()
-        ]
-    except Exception:
-        return []
+    return list_all_windows_printers()

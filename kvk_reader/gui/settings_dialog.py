@@ -19,6 +19,9 @@ from PyQt5.QtCore import QSettings
 
 from kvk_reader.config import APP_NAME, ORG_NAME, DEFAULTS, CT_API_DLLS
 
+# Combo entry for an empty "printer/name" (= auto-detect first Brother QL)
+_AUTO_PRINTER = "(automatisch: erster Brother QL)"
+
 
 class SettingsDialog(QDialog):
     """Application settings dialog."""
@@ -100,9 +103,31 @@ class SettingsDialog(QDialog):
         printer_group = QGroupBox("Etikettendrucker")
         printer_form = QFormLayout()
 
+        # Windows printer queue — the normal print path on Windows, works for
+        # USB and network (WLAN/LAN) printers alike.
+        printer_name_row = QHBoxLayout()
+        self._printer_name = QComboBox()
+        self._printer_name.setEditable(True)
+        self._printer_name.setMinimumWidth(250)
+        self._printer_name.setToolTip(
+            "Windows-Drucker für die Etiketten (USB oder Netzwerk/WLAN).\n"
+            "Automatisch = erster Drucker mit „Brother“ und „QL“ im Namen."
+        )
+        printer_name_row.addWidget(self._printer_name, stretch=1)
+
+        self._btn_refresh_printers = QPushButton("Aktualisieren")
+        self._btn_refresh_printers.clicked.connect(self._refresh_printers)
+        printer_name_row.addWidget(self._btn_refresh_printers)
+
+        printer_form.addRow("Windows-Drucker:", printer_name_row)
+
         printer_uri_row = QHBoxLayout()
         self._printer_uri = QLineEdit(self._get("printer/uri"))
         self._printer_uri.setPlaceholderText("usb://0x04F9:0x209B")
+        self._printer_uri.setToolTip(
+            "Nur für direkten USB-Druck über brother_ql (libusb).\n"
+            "Wird nicht benutzt, solange der Windows-Drucker funktioniert."
+        )
         printer_uri_row.addWidget(self._printer_uri, stretch=1)
 
         self._btn_detect_printer = QPushButton("Erkennen")
@@ -145,8 +170,9 @@ class SettingsDialog(QDialog):
 
         self.setLayout(layout)
 
-        # Initial reader discovery
+        # Initial reader and printer discovery
         self._refresh_readers()
+        self._refresh_printers(selected=self._get("printer/name"))
 
     def _get(self, key: str) -> str:
         return str(self._settings.value(key, DEFAULTS.get(key, "")))
@@ -176,6 +202,24 @@ class SettingsDialog(QDialog):
                 self._reader_combo.addItem("(Kein Kartenleser gefunden)")
         except Exception:
             self._reader_combo.addItem("(pyscard nicht verfügbar)")
+
+    def _refresh_printers(self, selected: str | None = None):
+        """List installed Windows printers, keeping the current choice."""
+        if selected is None:
+            selected = self._printer_name_value()
+        from kvk_reader.printer.label_printer import list_windows_printers
+
+        self._printer_name.clear()
+        self._printer_name.addItem(_AUTO_PRINTER)
+        for name in list_windows_printers():
+            self._printer_name.addItem(name)
+        # Keep a saved name even if the printer is offline/not listed right now
+        self._printer_name.setCurrentText(selected or _AUTO_PRINTER)
+
+    def _printer_name_value(self) -> str:
+        """Selected Windows printer name, empty string for auto-detect."""
+        text = self._printer_name.currentText().strip()
+        return "" if text == _AUTO_PRINTER else text
 
     def _select_ctapi_dll(self):
         """Open file dialog to select CT-API DLL."""
@@ -215,6 +259,7 @@ class SettingsDialog(QDialog):
         self._settings.setValue("reader/ct_api_pn", self._ctapi_pn.value())
         self._settings.setValue("praxis/bsnr", self._bsnr.text())
         self._settings.setValue("praxis/lanr", self._lanr.text())
+        self._settings.setValue("printer/name", self._printer_name_value())
         self._settings.setValue("printer/uri", self._printer_uri.text())
         self._settings.setValue("printer/model", self._printer_model.text())
         self._settings.setValue("label/copies_default", self._copies.value())

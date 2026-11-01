@@ -7,6 +7,7 @@ may touch a card reader or a printer.
 
 import base64
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -117,6 +118,16 @@ class TestPrint:
     def test_rejects_malformed_patient(self, api_client):
         resp = post_json(api_client, "/api/print", {"patient": "Mustermann"})
         assert resp.status_code == 400
+
+    def test_uses_configured_printer_name(self, api_client, context, with_patient):
+        context.settings.set("printer/name", "Brother QL-810W (WLAN)")
+        with patch("kvk_reader.printer.label_printer.print_label") as mock_print:
+            resp = post_json(api_client, "/api/print", {"copies": 2})
+
+        assert resp.status_code == 200
+        kwargs = mock_print.call_args.kwargs
+        assert kwargs["printer_name"] == "Brother QL-810W (WLAN)"
+        assert kwargs["copies"] == 2
 
 
 class TestHistory:
